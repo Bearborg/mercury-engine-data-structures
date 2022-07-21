@@ -9,6 +9,7 @@ from typing import Optional, Dict, Type, Set
 import construct
 
 from mercury_engine_data_structures import dread_data
+from mercury_engine_data_structures.construct_extensions.misc import ErrorWithMessage
 
 @dataclasses.dataclass(frozen=True)
 class BaseType:
@@ -202,6 +203,14 @@ def all_types() -> Dict[str, BaseType]:
     }
 
 
+@functools.lru_cache()
+def all_constructs() -> Dict[str, construct.Construct]:
+    return {
+        name: type.construct
+        for name, type in all_types().items()
+    }
+
+
 def get_type(type_name: str, *, follow_typedef: bool = True) -> BaseType:
     result = all_types()[type_name]
 
@@ -210,6 +219,19 @@ def get_type(type_name: str, *, follow_typedef: bool = True) -> BaseType:
         return get_type(result.alias, follow_typedef=follow_typedef)
 
     return result
+
+
+def GetTypeConstruct(keyfunc, follow_typedef: bool = True) -> construct.Construct:
+    return construct.FocusedSeq(
+        "switch",
+        "key" / construct.Computed(keyfunc),
+        "type" / construct.Computed(lambda this: get_type(this.key, follow_typedef=follow_typedef).name),
+        "switch" / construct.Switch(
+            lambda this: this.type,
+            all_constructs(),
+            ErrorWithMessage(lambda this: f"Unknown type: {this.type}", construct.SwitchError)
+        )
+    )
 
 
 def get_parent_for(type_name: str) -> Optional[str]:
